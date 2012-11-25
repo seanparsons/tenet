@@ -1,0 +1,4 @@
+*.swp
+target
+project/project
+project/target
