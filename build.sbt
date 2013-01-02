@@ -1,10 +1,14 @@
 scalaVersion := "2.9.2"
 
-libraryDependencies += "org.scalaz" %% "scalaz-core" % "7.0.0-M3"
+crossScalaVersions := Seq("2.9.2", "2.10.0-RC5")
 
-libraryDependencies += "org.scalaz" %% "scalaz-effect" % "7.0.0-M3"
+crossVersion := CrossVersion.full
 
-libraryDependencies += "org.scalaz" %% "scalaz-concurrent" % "7.0.0-M3"
+libraryDependencies += ("org.scalaz" %% "scalaz-core" % "7.0.0-M6").cross(CrossVersion.full)
+
+libraryDependencies += ("org.scalaz" %% "scalaz-effect" % "7.0.0-M6").cross(CrossVersion.full)
+
+libraryDependencies += ("org.scalaz" %% "scalaz-concurrent" % "7.0.0-M6").cross(CrossVersion.full)
 
 libraryDependencies += "io.netty" % "netty" % "4.0.0.Alpha7"
 
