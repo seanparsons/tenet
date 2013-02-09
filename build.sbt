@@ -12,13 +12,13 @@ libraryDependencies += "org.scalaz" %% "scalaz-effect" % "7.0.0-M7"
 
 libraryDependencies += "org.scalaz" %% "scalaz-concurrent" % "7.0.0-M7"
 
-libraryDependencies += "io.netty" % "netty" % "4.0.0.Beta1-SNAPSHOT"
+libraryDependencies += "io.netty" % "netty" % "3.6.2.Final"
 
-libraryDependencies += ("io.argonaut" %% "argonaut" % "6.0-SNAPSHOT").cross(CrossVersion.full)
-
-libraryDependencies += "org.slf4j" % "slf4j-api" % "1.6.6"
+libraryDependencies += "org.slf4j" % "slf4j-api" % "1.7.2"
 
 libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.0.9" % "test"
+
+libraryDependencies += ("io.argonaut" %% "argonaut" % "6.0-SNAPSHOT").cross(CrossVersion.full)
 
 initialCommands := """
 import scalaz._

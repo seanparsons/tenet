@@ -13,5 +13,5 @@ object Request {
 case class Response(statusCode: Int = 200, headers: Map[String, List[String]] = Response.defaultHeaders, body: String = "")
 
 object Response {
-  val defaultHeaders: Map[String, List[String]] = Map("Content-Length" -> List("0"))
+  val defaultHeaders: Map[String, List[String]] = Map()
 }

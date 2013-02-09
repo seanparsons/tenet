@@ -1,28 +1,13 @@
 package com.github.seanparsons.tenet.netty
 
-import io.netty.channel.ChannelInitializer
-import io.netty.channel.ChannelPipeline
-import io.netty.channel.socket.SocketChannel
-import io.netty.handler.codec.http.{HttpRequest => NettyHttpRequest, HttpResponse => NettyHttpResponse, _}
-import io.netty.handler.codec.http.HttpHeaders._
-import io.netty.handler.codec.http.HttpHeaders.Names._
-import io.netty.handler.codec.http.HttpResponseStatus._
-import io.netty.handler.codec.http.HttpVersion._
-import io.netty.channel.ChannelFuture
-import io.netty.channel.ChannelFutureListener
-import io.netty.channel.ChannelHandlerContext
-import io.netty.channel.ChannelInboundMessageHandlerAdapter
-import io.netty.handler.codec.DecoderResult
-import io.netty.util.CharsetUtil
-import io.netty.bootstrap.ServerBootstrap
-import io.netty.channel.Channel
-import io.netty.channel.socket.nio.NioEventLoopGroup
-import io.netty.channel.socket.nio.NioServerSocketChannel
-import io.netty.buffer.{ByteBufUtil, Unpooled, ByteBuf}
-import io.netty.handler.logging.{LogLevel, MessageLoggingHandler}
+import org.jboss.netty.channel._
+import org.jboss.netty.handler.codec.http.{HttpRequest => NettyHttpRequest, HttpResponse => NettyHttpResponse, _}
+import org.jboss.netty.handler.codec.http.HttpHeaders._
+import org.jboss.netty.handler.codec.http.HttpVersion._
+import org.jboss.netty.bootstrap.ServerBootstrap
+import socket.nio.NioServerSocketChannelFactory
 import scalaz._
 import Scalaz._
-import scalaz.concurrent._
 import scalaz.effect._
 import scalaz.effect.IO._
 import scala.collection.JavaConverters._
@@ -32,6 +17,8 @@ import java.nio.charset.Charset
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure => TryFailure, Success => TrySuccess}
 import org.slf4j.LoggerFactory
+import java.util.concurrent.Executors
+import org.jboss.netty.buffer.ChannelBuffers
 
 
 trait NettyConversions {
@@ -60,42 +47,46 @@ object NettyConversions {
         HTTP_1_1,
         HttpResponseStatus.valueOf(response.statusCode)
       )
-      (defaultHeaders ++ response.headers).foldLeft(nettyResponse){(workingResponse, header) =>
+      (defaultHeaders + ("Content-Length" -> List(response.body.length.toString)) ++ response.headers).foldLeft(nettyResponse){(workingResponse, header) =>
         workingResponse.setHeader(header._1, header._2.asJava)
         workingResponse
       }
-      nettyResponse.setContent(Unpooled.copiedBuffer(response.body, charset))
+      nettyResponse.setContent(ChannelBuffers.copiedBuffer(response.body, charset))
       nettyResponse
     }
   }
 }
 
-case class HttpServerInitializer(requestHandler: Request => Future[Response])(implicit nettyConversions: NettyConversions, executionContext: ExecutionContext) extends ChannelInitializer[SocketChannel] {
-  override def initChannel(channel: SocketChannel) {
+case class HttpServerInitializer(requestHandler: Request => Future[Response])(implicit nettyConversions: NettyConversions, executionContext: ExecutionContext) extends ChannelPipelineFactory {
+  override def getPipeline(): ChannelPipeline = {
     // Create a default pipeline implementation.
-    val pipeline = channel.pipeline()
+    val pipeline = Channels.pipeline()
 
     pipeline.addLast("httpDecoder", new HttpRequestDecoder())
     // Uncomment the following line if you don't want to handle HttpChunks.
     pipeline.addLast("aggregator", new HttpChunkAggregator(1048576))
-    //pipeline.addLast("messageLogger", new MessageLoggingHandler("After Aggregator", LogLevel.INFO))
     pipeline.addLast("httpEncoder", new HttpResponseEncoder())
     // Remove the following line if you don't want automatic content compression.
     pipeline.addLast("httpDeflater", new HttpContentCompressor())
     pipeline.addLast("handler", new HttpServerHandler(requestHandler))
+
+    pipeline
   }
 }
 
-case class HttpServerHandler(requestHandler: Request => Future[Response])(implicit nettyConversions: NettyConversions, executionContext: ExecutionContext) extends ChannelInboundMessageHandlerAdapter[NettyHttpRequest] {
+case class HttpServerHandler(requestHandler: Request => Future[Response])(implicit nettyConversions: NettyConversions, executionContext: ExecutionContext) extends SimpleChannelUpstreamHandler {
   val logger = LoggerFactory.getLogger(getClass)
 
-  override def messageReceived(context: ChannelHandlerContext, httpRequest: NettyHttpRequest) {
+  override def messageReceived(context: ChannelHandlerContext, messageEvent: MessageEvent) {
+    val httpRequest: NettyHttpRequest = messageEvent.getMessage.asInstanceOf[NettyHttpRequest]
+    val channel = messageEvent.getChannel
+
     def handleException(throwable: Throwable) {
       // Log the failure.
       logger.error("Error while processing request.", throwable)
 
       // Write the response.
-      val channelFuture = context.write(nettyConversions.toNettyResponse(Response(statusCode = 500)))
+      val channelFuture = channel.write(nettyConversions.toNettyResponse(Response(statusCode = 500)))
 
       // Close the connection by default?
       channelFuture.addListener(ChannelFutureListener.CLOSE)
@@ -103,17 +94,15 @@ case class HttpServerHandler(requestHandler: Request => Future[Response])(implic
 
     // Transform the response.
     try {
-      logger.info("Starting the handler response.")
       val responseFuture = httpRequest |> nettyConversions.fromNettyRequest |> requestHandler
       responseFuture.onComplete{response =>
         response match {
           case TrySuccess(success) => {
-            logger.info("Starting the success branch.")
             // Decide whether to close the connection or not.
             val keepAlive = isKeepAlive(httpRequest)
 
             // Write the response.
-            val channelFuture = context.write(nettyConversions.toNettyResponse(success))
+            val channelFuture = channel.write(nettyConversions.toNettyResponse(success))
 
             // Close the non-keep-alive connection after the write operation is done.
             if (!keepAlive) {
@@ -121,14 +110,12 @@ case class HttpServerHandler(requestHandler: Request => Future[Response])(implic
             }
           }
           case TryFailure(failure) => {
-            logger.info("Starting the failure branch.")
             handleException(failure)
           }
         }
       }
     } catch {
       case throwable: Throwable => {
-        logger.info("Starting the failure fallback branch.")
         handleException(throwable)
       }
     }
@@ -137,19 +124,21 @@ case class HttpServerHandler(requestHandler: Request => Future[Response])(implic
 
 object HttpServer {
   def start(port: Int, requestHandler: Request => Future[Response])(implicit nettyConversions: NettyConversions, executionContext: ExecutionContext): IO[ServerBootstrap] = IO{
-    val bootstrap = new ServerBootstrap()
-    bootstrap
-      .group(new NioEventLoopGroup(), new NioEventLoopGroup())
-      .channel(classOf[NioServerSocketChannel])
-      .childHandler(new HttpServerInitializer(requestHandler))
-      .localAddress(new InetSocketAddress(port))
+    val bootstrap = new ServerBootstrap(
+      new NioServerSocketChannelFactory(
+        Executors.newFixedThreadPool(100),
+        Executors.newFixedThreadPool(100)
+      )
+    )
+    bootstrap.setPipelineFactory(new HttpServerInitializer(requestHandler))
 
-    bootstrap.bind().sync()
+    bootstrap.bind(new InetSocketAddress(port))
 
     bootstrap
   }
 
   def stop(serverBootstrap: ServerBootstrap): IO[Unit] = IO{
+    serverBootstrap.releaseExternalResources()
     serverBootstrap.shutdown()
   }
 
