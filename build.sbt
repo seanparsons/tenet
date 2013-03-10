@@ -6,11 +6,15 @@ crossVersion := CrossVersion.full
 
 resolvers += "Sonatype Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/"
 
-libraryDependencies += "org.scalaz" %% "scalaz-core" % "7.0.0-M7"
+libraryDependencies += "org.scalaz" %% "scalaz-core" % "7.0-SNAPSHOT"
 
-libraryDependencies += "org.scalaz" %% "scalaz-effect" % "7.0.0-M7"
+libraryDependencies += "org.scalaz" %% "scalaz-effect" % "7.0-SNAPSHOT"
 
-libraryDependencies += "org.scalaz" %% "scalaz-concurrent" % "7.0.0-M7"
+libraryDependencies += "org.scalaz" %% "scalaz-concurrent" % "7.0-SNAPSHOT"
+
+libraryDependencies += "org.scalaz.stream" %% "scalaz-stream" % "0.1-SNAPSHOT"
+
+libraryDependencies += "org.typelevel" %% "scalaz-contrib-210" % "0.1.1"
 
 libraryDependencies += "io.netty" % "netty" % "3.6.2.Final"
 
